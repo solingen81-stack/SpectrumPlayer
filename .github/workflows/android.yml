@@ -1,4 +1,3 @@
-
 name: Build SPECTRUM APK
 
 on:
@@ -16,24 +15,46 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find and extract Android project
+      - name: Extract Android project
         run: |
           sudo apt-get update
           sudo apt-get install -y unzip
           ARCHIVE=$(find . -maxdepth 1 -type f -iname '*.zip' | head -n 1)
           if [ -z "$ARCHIVE" ]; then
-            echo "No ZIP archive found in repository root"
+            echo "No ZIP archive found"
             exit 1
           fi
           mkdir extracted
           unzip -q "$ARCHIVE" -d extracted
           PROJECT_DIR=$(dirname "$(find extracted -name settings.gradle -print -quit)")
           if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/app/build.gradle" ]; then
-            echo "Android project files were not found"
-            find extracted -maxdepth 4 -type f
+            echo "Android project not found"
             exit 1
           fi
           echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Fix Java and Kotlin compatibility
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          p = Path(os.environ["PROJECT_DIR"]) / "app" / "build.gradle"
+          s = p.read_text()
+          marker = "\n}\n\ndependencies {"
+          addition = """
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = '17'
+              }"""
+          if marker not in s:
+              raise SystemExit("Could not find the android block in app/build.gradle")
+          p.write_text(s.replace(marker, addition + marker, 1))
+          print("Java and Kotlin targets set to 17")
+          PY
 
       - name: Set up Java
         uses: actions/setup-java@v4
